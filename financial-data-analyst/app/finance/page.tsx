@@ -289,8 +289,8 @@ export default function AIChat() {
 
     if (file.type === "application/pdf") {
       loadingToastRef = toast({
-        title: "Processing PDF",
-        description: "Extracting text content...",
+        title: "正在处理 PDF",
+        description: "提取文本内容中...",
         duration: Infinity, // This will keep the toast until we dismiss it
       });
     }
@@ -310,11 +310,11 @@ export default function AIChat() {
           base64Data = btoa(encodeURIComponent(pdfText));
           isText = true;
         } catch (error) {
-          console.error("Failed to parse PDF:", error);
+          console.error("解析 PDF 失败:", error);
           toast({
-            title: "PDF parsing failed",
-            description: "Unable to extract text from the PDF",
-            variant: "destructive",
+            title: "PDF 解析失败",
+            description: "无法从 PDF 中提取文本",
+            variant: "破坏性",
           });
           return;
         }
@@ -326,9 +326,9 @@ export default function AIChat() {
         } catch (error) {
           console.error("Failed to read as text:", error);
           toast({
-            title: "Invalid file type",
-            description: "File must be readable as text, PDF, or be an image",
-            variant: "destructive",
+            title: "无效的文件类型",
+            description: "文件必须可作为文本、PDF 或图像读取",
+            variant: "破坏性",
           });
           return;
         }
@@ -471,7 +471,7 @@ export default function AIChat() {
         newMessages[newMessages.length - 1] = {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: "I apologize, but I encountered an error. Please try again.",
+          content: "我很抱歉，但我遇到了一个错误。请再试一次。",
         };
         return newMessages;
       });
@@ -539,7 +539,7 @@ export default function AIChat() {
                     </Avatar>
                     <div>
                       <CardTitle className="text-lg">
-                        Financial Assistant
+                        财务助理
                       </CardTitle>
                       <CardDescription className="text-xs">
                         Powered by Claude
@@ -582,28 +582,25 @@ export default function AIChat() {
                   />
                 </Avatar>
                 <h2 className="text-xl font-semibold mb-2">
-                  Financial Assistant
+                  财务助理
                 </h2>
                 <div className="space-y-4 text-base">
                   <div className="flex items-center gap-3">
                     <ChartArea className="text-muted-foreground w-6 h-6" />
                     <p className="text-muted-foreground">
-                      I can analyze financial data and create visualizations
-                      from your files.
+                      我可以分析财务数据并从您的文件中创建可视化图表。
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
                     <FileInput className="text-muted-foreground w-6 h-6" />
                     <p className="text-muted-foreground">
-                      Upload CSVs, PDFs, or images and I&apos;ll help you
-                      understand the data.
+                      上传 CSV、PDF 或图像，我将帮助您理解数据。
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
                     <MessageCircleQuestion className="text-muted-foreground w-6 h-6" />
                     <p className="text-muted-foreground">
-                      Ask questions about your financial data and I&apos;ll
-                      create insightful charts.
+                      向我询问有关您的财务数据的问题，我将创建有洞察力的图表。
                     </p>
                   </div>
                 </div>
@@ -681,7 +678,7 @@ export default function AIChat() {
           {messages.some((m) => m.chartData) && (
             <CardHeader className="py-3 px-4 shrink-0">
               <CardTitle className="text-lg">
-                Analysis & Visualizations
+                分析与可视化
               </CardTitle>
             </CardHeader>
           )}
@@ -716,16 +713,16 @@ export default function AIChat() {
                   <ChartColumnBig className="w-8 h-8 text-muted-foreground" />
                   <div className="space-y-2">
                     <CardTitle className="text-lg">
-                      Analysis & Visualizations
+                      分析与可视化
                     </CardTitle>
                     <CardDescription className="text-base">
-                      Charts and detailed analysis will appear here as you chat
+                      在您聊天时，这里将显示图表和详细分析
                     </CardDescription>
                     <div className="flex flex-wrap justify-center gap-2 mt-4">
-                      <Badge variant="outline">Bar Charts</Badge>
-                      <Badge variant="outline">Area Charts</Badge>
-                      <Badge variant="outline">Linear Charts</Badge>
-                      <Badge variant="outline">Pie Charts</Badge>
+                      <Badge variant="outline">柱状图</Badge>
+                      <Badge variant="outline">面积图</Badge>
+                      <Badge variant="outline">线性图</Badge>
+                      <Badge variant="outline">饼图</Badge>
                     </div>
                   </div>
                 </div>
