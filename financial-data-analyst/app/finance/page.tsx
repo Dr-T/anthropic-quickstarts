@@ -314,7 +314,7 @@ export default function AIChat() {
           toast({
             title: "PDF 解析失败",
             description: "无法从 PDF 中提取文本",
-            variant: "破坏性",
+            variant: "destructive",
           });
           return;
         }
@@ -328,7 +328,7 @@ export default function AIChat() {
           toast({
             title: "无效的文件类型",
             description: "文件必须可作为文本、PDF 或图像读取",
-            variant: "破坏性",
+            variant: "destructive",
           });
           return;
         }
