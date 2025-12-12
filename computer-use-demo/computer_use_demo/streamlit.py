@@ -8,11 +8,12 @@ import os
 import subprocess
 import traceback
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 from functools import partial
 from pathlib import PosixPath
-from typing import cast
+from typing import cast, get_args
 
 import httpx
 import streamlit as st
@@ -25,11 +26,66 @@ from anthropic.types.beta import (
 from streamlit.delta_generator import DeltaGenerator
 
 from computer_use_demo.loop import (
-    PROVIDER_TO_DEFAULT_MODEL_NAME,
     APIProvider,
     sampling_loop,
 )
-from computer_use_demo.tools import ToolResult
+from computer_use_demo.tools import ToolResult, ToolVersion
+
+PROVIDER_TO_DEFAULT_MODEL_NAME: dict[APIProvider, str] = {
+    APIProvider.ANTHROPIC: "claude-sonnet-4-5-20250929",
+    APIProvider.BEDROCK: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    APIProvider.VERTEX: "claude-3-5-sonnet-v2@20241022",
+}
+
+
+@dataclass(kw_only=True, frozen=True)
+class ModelConfig:
+    tool_version: ToolVersion
+    max_output_tokens: int
+    default_output_tokens: int
+    has_thinking: bool = False
+
+
+CLAUDE_4 = ModelConfig(
+    tool_version="computer_use_20250429",
+    max_output_tokens=64_000,
+    default_output_tokens=1024 * 16,
+    has_thinking=True,
+)
+
+CLAUDE_4_5 = ModelConfig(
+    tool_version="computer_use_20250124",
+    max_output_tokens=128_000,
+    default_output_tokens=1024 * 16,
+    has_thinking=True,
+)
+
+CLAUDE_4_WITH_ZOOMABLE_TOOL = ModelConfig(
+    tool_version="computer_use_20251124",
+    max_output_tokens=64_000,
+    default_output_tokens=1024 * 16,
+    has_thinking=True,
+)
+
+HAIKU_4_5 = ModelConfig(
+    tool_version="computer_use_20250124",
+    max_output_tokens=1024 * 8,
+    default_output_tokens=1024 * 4,
+    has_thinking=False,
+)
+
+MODEL_TO_MODEL_CONF: dict[str, ModelConfig] = {
+    "claude-opus-4-1-20250805": CLAUDE_4,
+    "claude-sonnet-4-20250514": CLAUDE_4,
+    "claude-opus-4-20250514": CLAUDE_4,
+    "claude-sonnet-4-5-20250929": CLAUDE_4_5,
+    "anthropic.claude-sonnet-4-5-20250929-v1:0": CLAUDE_4_5,
+    "claude-sonnet-4-5@20250929": CLAUDE_4_5,
+    "claude-haiku-4-5-20251001": HAIKU_4_5,
+    "anthropic.claude-haiku-4-5-20251001-v1:0": HAIKU_4_5,  # Bedrock
+    "claude-haiku-4-5@20251001": HAIKU_4_5,  # Vertex
+    "claude-opus-4-5-20251101": CLAUDE_4_WITH_ZOOMABLE_TOOL,
+}
 
 CONFIG_DIR = PosixPath("~/.anthropic").expanduser()
 API_KEY_FILE = CONFIG_DIR / "api_key"
@@ -90,6 +146,8 @@ def setup_state():
         st.session_state.custom_system_prompt = load_from_storage("system_prompt") or ""
     if "hide_images" not in st.session_state:
         st.session_state.hide_images = False
+    if "token_efficient_tools_beta" not in st.session_state:
+        st.session_state.token_efficient_tools_beta = False
     if "in_sampling_loop" not in st.session_state:
         st.session_state.in_sampling_loop = False
 
@@ -98,6 +156,24 @@ def _reset_model():
     st.session_state.model = PROVIDER_TO_DEFAULT_MODEL_NAME[
         cast(APIProvider, st.session_state.provider)
     ]
+    _reset_model_conf()
+
+
+def _reset_model_conf():
+    model_conf = (
+        MODEL_TO_MODEL_CONF.get(st.session_state.model, CLAUDE_4)  # Default fallback
+    )
+
+    # If we're in radio selection mode, use the selected tool version
+    if hasattr(st.session_state, "tool_versions"):
+        st.session_state.tool_version = st.session_state.tool_versions
+    else:
+        st.session_state.tool_version = model_conf.tool_version
+
+    st.session_state.has_thinking = model_conf.has_thinking
+    st.session_state.output_tokens = model_conf.default_output_tokens
+    st.session_state.max_output_tokens = model_conf.max_output_tokens
+    st.session_state.thinking_budget = int(model_conf.default_output_tokens / 2)
 
 
 async def main():
@@ -128,11 +204,11 @@ async def main():
             on_change=_reset_api_provider,
         )
 
-        st.text_input("Model", key="model")
+        st.text_input("Model", key="model", on_change=_reset_model_conf)
 
         if st.session_state.provider == APIProvider.ANTHROPIC:
             st.text_input(
-                "Anthropic API Key",
+                "Claude API Key",
                 type="password",
                 key="api_key",
                 on_change=lambda: save_to_storage("api_key", st.session_state.api_key),
@@ -153,6 +229,32 @@ async def main():
             ),
         )
         st.checkbox("Hide screenshots", key="hide_images")
+        st.checkbox(
+            "Enable token-efficient tools beta", key="token_efficient_tools_beta"
+        )
+        versions = get_args(ToolVersion)
+        st.radio(
+            "Tool Versions",
+            key="tool_versions",
+            options=versions,
+            index=versions.index(st.session_state.tool_version),
+            on_change=lambda: setattr(
+                st.session_state,
+                "tool_version",
+                st.session_state.get("tool_versions", st.session_state.tool_version),
+            ),
+        )
+
+        st.number_input("Max Output Tokens", key="output_tokens", step=1)
+
+        st.checkbox("Thinking Enabled", key="thinking", value=False)
+        st.number_input(
+            "Thinking Budget",
+            key="thinking_budget",
+            max_value=st.session_state.max_output_tokens,
+            step=1,
+            disabled=not st.session_state.thinking,
+        )
 
         if st.button("Reset", type="primary"):
             with st.spinner("Resetting..."):
@@ -184,7 +286,7 @@ async def main():
                 _render_message(message["role"], message["content"])
             elif isinstance(message["content"], list):
                 for block in message["content"]:
-                    # the tool result we send back to the Anthropic API isn't sufficient to render all details,
+                    # the tool result we send back to the Claude API isn't sufficient to render all details,
                     # so we store the tool use responses
                     if isinstance(block, dict) and block["type"] == "tool_result":
                         _render_message(
@@ -240,6 +342,12 @@ async def main():
                 ),
                 api_key=st.session_state.api_key,
                 only_n_most_recent_images=st.session_state.only_n_most_recent_images,
+                tool_version=st.session_state.tool_versions,
+                max_tokens=st.session_state.output_tokens,
+                thinking_budget=st.session_state.thinking_budget
+                if st.session_state.thinking
+                else None,
+                token_efficient_tools_beta=st.session_state.token_efficient_tools_beta,
             )
 
 
@@ -277,7 +385,7 @@ def track_sampling_loop():
 def validate_auth(provider: APIProvider, api_key: str | None):
     if provider == APIProvider.ANTHROPIC:
         if not api_key:
-            return "Enter your Anthropic API key in the sidebar to continue."
+            return "Enter your Claude API key in the sidebar to continue."
     if provider == APIProvider.BEDROCK:
         import boto3
 
@@ -375,7 +483,7 @@ def _render_error(error: Exception):
     if isinstance(error, RateLimitError):
         body = "You have been rate limited."
         if retry_after := error.response.headers.get("retry-after"):
-            body += f" **Retry after {str(timedelta(seconds=int(retry_after)))} (HH:MM:SS).** See our API [documentation](https://docs.anthropic.com/en/api/rate-limits) for more details."
+            body += f" **Retry after {str(timedelta(seconds=int(retry_after)))} (HH:MM:SS).** See our API [documentation](https://docs.claude.com/en/api/rate-limits) for more details."
         body += f"\n\n{error.message}"
     else:
         body = str(error)
@@ -415,11 +523,14 @@ def _render_message(
         elif isinstance(message, dict):
             if message["type"] == "text":
                 st.write(message["text"])
+            elif message["type"] == "thinking":
+                thinking_content = message.get("thinking", "")
+                st.markdown(f"[Thinking]\n\n{thinking_content}")
             elif message["type"] == "tool_use":
-                st.code(f'Tool Use: {message["name"]}\nInput: {message["input"]}')
+                st.code(f"Tool Use: {message['name']}\nInput: {message['input']}")
             else:
                 # only expected return types are text and tool_use
-                raise Exception(f'Unexpected response type {message["type"]}')
+                raise Exception(f"Unexpected response type {message['type']}")
         else:
             st.markdown(message)
 
